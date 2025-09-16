@@ -1,0 +1,6 @@
+JDozerFuzzer uses the following third-party components:
+
+- Artillery (MPL-2.0 License): https://artillery.io/
+- Redis (BSD-3-Clause License): https://redis.io/
+
+This notice must be included in all software distributions.

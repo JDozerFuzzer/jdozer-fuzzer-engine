@@ -1,0 +1,136 @@
+/**
+    # JDozerFuzzer - Microservicio de Discovery
+    # Copyright (C) 2024 Cristián Saéz V.
+    # Licencia: GNU AGPLv3 (ver LICENSE)
+ */
+import { Injectable, Logger } from '@nestjs/common';
+import { spawn } from 'child_process';
+import { randomUUID, UUID } from 'crypto';
+
+import * as YAML from 'yaml';
+import * as fs from 'fs';
+import { EngineException } from './EngineException';
+import { RedisService } from './persistence/RedisService';
+import { EngineScenarios } from './config/EngineScenarios';
+import { KeyManager } from './persistence/KeyManager';
+import { EnginePhases } from './config/EnginePhases';
+
+@Injectable()
+export class JDozerFuzzerEngine {
+
+  private readonly log = new Logger(JDozerFuzzerEngine.name);
+  private readonly keyManger: KeyManager = new KeyManager();
+
+  constructor(
+    private readonly redisService: RedisService,
+    private readonly engineScenarios: EngineScenarios,
+    private readonly enginePhases: EnginePhases
+  ) { }
+
+  async start(fuzzerId: UUID, timeLength: number = 1): Promise<void> {
+    try {
+
+      const fuzzer = await this.redisService.getFuzzer(fuzzerId);
+      const operations: any[] = await this.getOperations(fuzzer.id);
+      const cases: string[] = await this.getCasesKeys(fuzzer.id);
+
+      let engCfg = await this.redisService.getEng(fuzzer.id);
+
+      engCfg.scenarios = await this.engineScenarios.build(operations, cases);
+      engCfg.config.phases = this.enginePhases.build(engCfg.scenarios, cases.length, operations.length, timeLength);
+
+      engCfg.config.processor = this.targetProcessor();
+      engCfg.config.plugins = this.targetPlugins(fuzzer);
+
+      this.redisService.set(this.keyManger.forEngine(fuzzer.id), engCfg);
+
+      let engCfgYml = YAML.stringify(engCfg);
+      this.exec(engCfgYml);
+      this.log.log('Fuzzer Engine started!');
+      return;
+
+    } catch (e) {
+      throw new EngineException({
+        message: `Oops! Fuzzer Engine failed to start!, fuzzerId: ${fuzzerId}`,
+        details: `${e.message}`
+      });
+    }
+  }
+
+  private targetProcessor() {
+    return `${process.cwd()}/src/processor/JDozerFuzzerEngineProcessor.js`;
+  }
+
+  private targetPlugins(fuzzer: any) {
+
+    const plugins = {};
+    plugins['publish-metrics'] = [];
+    // plugins['publish-metrics'].push(this.getPrometheusMetrics(fuzzer.name, fuzzer.version));
+
+    return plugins;
+  }
+
+  private getPrometheusMetrics(fuzzName: string, fuzzVersion: string): any {
+    return {
+      type: 'prometheus',
+      prefix: 'jdozzerfuzzer',
+      pushgateway: `http://${process.env.FUZZER_PUSHGATEWAY_HOST}:${process.env.FUZZER_PUSHGATEWAY_PORT}`,
+      tags: [`JDozerFuzzer:${fuzzName.concat('_').concat(fuzzVersion).replaceAll(' ', '_')}`]
+    };
+  }
+
+  private async exec(cfg: string, options: string[] = []): Promise<void> {
+
+    const fileName = `engine-${randomUUID().toString()}.yml`;
+    const pathFile = `/tmp/${fileName}`;
+    fs.writeFileSync(pathFile, cfg);
+
+    return new Promise((resolve, reject) => {
+
+      const workingDirectory = __dirname;
+
+      const engineProcess = spawn('artillery', ['run', `--quiet`, ...options, pathFile.toString()], {
+        detached: true,
+        cwd: workingDirectory,
+        stdio: ['pipe', 'inherit', 'inherit']
+      });
+
+      engineProcess.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(`Engine process exited with code ${code}`));
+        } else {
+          console.info(`Engine process with id ${engineProcess.pid} exited successfully!`);
+          resolve();
+        }
+      });
+
+      engineProcess.on('error', (err) => {
+        console.error(`Engine process encountered an error: ${err}`);
+        reject(err);
+      });
+
+      console.info(`Engine process started with id ${engineProcess.pid}`);
+      engineProcess.unref();
+
+    });
+  }
+
+  private async getOperations(fuzzerId: UUID): Promise<any> {
+    try {
+      return await this.redisService.getOperations(fuzzerId);
+    } catch (e) {
+      throw new EngineException({ message: `Oops! Failed to get Operations!`, details: e.message });
+    }
+  }
+
+  private async getCasesKeys(fuzzerId: UUID): Promise<string[]> {
+    try {
+      return await this.redisService.getDummyCasesKeys(fuzzerId);
+    } catch (e) {
+      throw new EngineException({ message: `Oops! Failed to get Cases Keys!`, details: e.message });
+    }
+  }
+
+
+  private readonly _MSG_NOTFOUND: string = 'Fuzzer not found or not owned by the current user!';
+}
