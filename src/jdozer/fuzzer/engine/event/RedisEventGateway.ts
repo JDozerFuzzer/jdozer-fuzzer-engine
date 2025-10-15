@@ -25,8 +25,8 @@ export class RedisEventsGateway implements OnModuleDestroy {
         this.log.verbose('[RedisEventsGateway] Initializing Redis Events Gateway...');
         this.log.verbose(`[RedisEventsGateway] Connecting to Redis server at: ${process.env.REDIS_HOST}:${process.env.REDIS_PORT}`);
         this.subscriber = new Redis.Redis({
-            host: process.env.REDIS_HOST,
-            port: +process.env.REDIS_PORT,
+            host: process.env.FUZZER_REDIS_HOST,
+            port: +process.env.FUZZER_REDIS_PORT,
         });
         this.initialize();
     }

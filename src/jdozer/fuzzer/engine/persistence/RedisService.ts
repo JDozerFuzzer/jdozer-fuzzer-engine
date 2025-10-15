@@ -16,8 +16,8 @@ export class RedisService implements OnModuleDestroy {
 
     constructor() {
         this.client = new Redis.Redis({
-            host: process.env.REDIS_HOST,
-            port: +process.env.REDIS_PORT
+            host: process.env.FUZZER_REDIS_HOST,
+            port: +process.env.FUZZER_REDIS_PORT
         });
     }
 

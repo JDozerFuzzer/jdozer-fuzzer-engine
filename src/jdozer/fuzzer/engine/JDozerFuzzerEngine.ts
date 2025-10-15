@@ -41,6 +41,7 @@ export class JDozerFuzzerEngine {
 
       engCfg.config.processor = this.targetProcessor();
       engCfg.config.plugins = this.targetPlugins(fuzzer);
+      engCfg.before = { flow: [{ function: 'before' }] };
 
       this.redisService.set(this.keyManger.forEngine(fuzzer.id), engCfg);
 
@@ -58,7 +59,7 @@ export class JDozerFuzzerEngine {
   }
 
   private targetProcessor() {
-    return `${process.cwd()}/src/processor/JDozerFuzzerEngineProcessor.js`;
+    return `${process.cwd()}/src/processor/JDozerFuzzerEngineProcessor.cjs`;
   }
 
   private targetPlugins(fuzzer: any) {
