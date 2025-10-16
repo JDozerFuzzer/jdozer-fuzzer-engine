@@ -402,15 +402,3 @@ module.exports = {
     }
 };
 
-/**
-let fuzzerId = 'e8166001-e566-4b9a-ae5f-b71e9fc76f91';
-jDozerFuzzerEngineProcessor.beforeScenario({ vars: { testId: fuzzerId }, scenario: { name: 'updatePet' } }, {}).then(async () => {
-    for (let i = 0; i < 5; i++) {
-        let dmmCases = await jDozerFuzzerEngineProcessor.getCase(fuzzerId, 'updatePet');
-        console.debug('Case Selected:', dmmCases);
-    }
-    exit(0);
-}).catch((e) => {
-    console.error('Error initializing scenario:', e);
-});
-*/
