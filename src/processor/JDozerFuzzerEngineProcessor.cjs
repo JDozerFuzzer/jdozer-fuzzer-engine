@@ -6,7 +6,9 @@ const { Logger } = require('@nestjs/common');
 
 class JDozerFuzzerEngineProcessor {
 
-    #log = new Logger('JDozerFuzzerEngineProcessor');
+    #log = new Logger('JDozerFuzzerEngineProcessor', {
+        level: process.env.FUZZER_LOG_LEVEL
+    });
     #redis;
 
     constructor() {
@@ -25,7 +27,9 @@ class JDozerFuzzerEngineProcessor {
 
             let fuzzerRaw = await this.#redis.get('JDF:'.concat(context.vars.testId));
             if (!fuzzerRaw) {
-                throw new Error(`Fuzzer id: ${context.vars.testId} not found!`);
+                let err = `Fuzzer id: ${context.vars.testId} not found!`;
+                this.#log.error(err);
+                throw new Error(err);
             }
 
             let fuzzer = JSON.parse(fuzzerRaw);
@@ -37,7 +41,7 @@ class JDozerFuzzerEngineProcessor {
             return;
 
         } catch (e) {
-            this.#log.error("Error en beforeScenario:", e.message);
+            this.#log.error("Error en prepareCases:", e.message);
             throw e;
         }
     }
@@ -52,6 +56,7 @@ class JDozerFuzzerEngineProcessor {
         try {
             let casesKeys = await this.#getDmmCases(fuzzerId, operationId);
             if (!casesKeys) {
+                this.#log.warn(`#getCase: No DMM cases for operation ${operationId} and fuzzer ${fuzzerId}`);
                 return undefined;
             }
             let selectedCaseKeyAndReduce = await this.#getCasesKeys(casesKeys);
@@ -87,11 +92,14 @@ class JDozerFuzzerEngineProcessor {
                     dmmCasesKeys[key] = selectedCaseKeyAndReduce[key].rest;
                     if (dmmCasesKeys[key].length === 0) {
                         let reloaded = await this.#getDmmKeysByType(fuzzerId, operationId, key);
-                        dmmCasesKeys[key] = reloaded;
+                        dmmCasesKeys[key] = (reloaded.length === 0) ? undefined : reloaded;
+                        this.#log.verbose(`#updateDmmCases: Reloaded DMM cases keys for type ${key}: ${dmmCasesKeys[key].length} total`);
+                    } else {
+                        this.#log.verbose(`#updateDmmCases: Remaining DMM cases keys for type ${key}: ${dmmCasesKeys[key].length} remaining`);
                     }
-                    this.#log.debug(`#updateDmmCases: ${key}: ${dmmCasesKeys[key].length}`);
+                } else {
+                    this.#log.verbose(`#updateDmmCases: No remaining DMM cases keys for type ${key}`);
                 }
-
             }
             await this.#redis.set('JDF:'.concat(fuzzerId).concat(':ENG:CASES:').concat(operationId), JSON.stringify(dmmCasesKeys));
             return;
@@ -108,11 +116,14 @@ class JDozerFuzzerEngineProcessor {
      */
     async #getCasesKeys(casesKeys) {
         try {
+            this.#log.verbose(`#getCasesKeys: ${Object.keys(casesKeys)}`);
             let keys = Object.keys(casesKeys);
             let selectedCaseKeyAndReduce = {};
             for (let key of keys) {
                 if (casesKeys[key] != undefined) {
+                    this.#log.verbose(`#getCasesKeys: ${key}:${casesKeys[key].length}`);
                     selectedCaseKeyAndReduce[key] = await this.#getDmmKeyAndReduce(casesKeys[key]);
+                    this.#log.verbose(`#getCasesKeys: Reduce: ${key}:${selectedCaseKeyAndReduce[key].rest.length}`);
                 }
             }
             return selectedCaseKeyAndReduce;
@@ -131,11 +142,9 @@ class JDozerFuzzerEngineProcessor {
     async #getDmmCases(fuzzerId, operationId) {
         try {
             let qry = 'JDF:'.concat(fuzzerId).concat(':ENG:CASES:').concat(operationId);
-            let dmmRaw = await this.#redis.get(qry);
-            if (dmmRaw) {
-                return JSON.parse(dmmRaw);
-            }
-            return undefined;
+            this.#log.verbose(`#getDmmCases: Querying DMM cases with key: ${qry}`);
+            let cases = JSON.parse(await this.#redis.get(qry));
+            return (Object.keys(cases).length > 0) ? cases : undefined;
         } catch (e) {
             console.error("Error in #getDmmCases:", e);
             throw e;
@@ -152,8 +161,9 @@ class JDozerFuzzerEngineProcessor {
             if (arr != undefined && arr.length > 0) {
                 let c = await this.#redis.get(arr[0]);
                 let r = arr.slice(1);
-                this.#log.verbose(`#getDmmKeyAndReduce: selected key: ${arr[0]}`, `#getDmmKeyAndReduce: remaining keys: ${r.length}`);
-                return { selectedCaseKey: c, rest: r };
+                let keyAndReduce = { selectedCaseKey: c, rest: r };
+                this.#log.verbose(`#getDmmKeyAndReduce: keyAndReduce: ${keyAndReduce.rest.length}`, `selectedCaseKey: ${keyAndReduce.selectedCaseKey}`);
+                return keyAndReduce;
             }
             return {};
         } catch (e) {
@@ -174,17 +184,18 @@ class JDozerFuzzerEngineProcessor {
             let attrs = ['headers', 'payload', 'query', 'path'];
             let dmm = {};
 
+            let keys;
             for (let a of attrs) {
-                dmm[a] = await this.#getDmmKeysByType(fuzzerId, operationId, a)
+                keys = await this.#getDmmKeysByType(fuzzerId, operationId, a);
+                if (keys.length > 0)
+                    dmm[a] = keys;
             }
-            this.#log.debug(`#loadDmmCases: payload: ${dmm.payload.length}`,
-                `#loadDmmCases: headers: ${dmm.headers.length}`,
-                `#loadDmmCases: query: ${dmm.query.length}`,
-                `#loadDmmCases: path: ${dmm.path.length}`);
+
+            this.#log.debug(`#loadDmmCases from ${operationId}`, `keys: ${Object.keys(dmm)}`);
             await this.#redis.set('JDF:'.concat(fuzzerId).concat(':ENG:CASES:').concat(operationId), JSON.stringify(dmm));
 
         } catch (e) {
-            console.error("Error en loadCases:", e);
+            console.error(`#loadDmmCases: ${e.message}`);
             throw e;
         }
     }
@@ -199,10 +210,12 @@ class JDozerFuzzerEngineProcessor {
     async #getDmmKeysByType(fuzzerId, operationId, type) {
         try {
             let fnd = 'JDF:'.concat(fuzzerId).concat(':DMM:').concat(operationId).concat(':').concat(type).concat(':*');
+            this.#log.verbose(`#getDmmKeysByType: Finding DMM keys with pattern: ${fnd}`);
             return await this.#redis.keys(fnd);
         } catch (e) {
-            console.error("Error in #getDmmKeysByType:", e);
-            throw e;
+            let err = `Error in #getDmmKeysByType for type ${type}: ${e.message}`;
+            this.#log.error(err);
+            throw new Error(err);
         }
     }
 
@@ -213,6 +226,7 @@ class JDozerFuzzerEngineProcessor {
         try {
 
             let op = context.scenario.name.toString();
+            this.#log.verbose(`Request for operation: ${op}`);
 
             let request = {
                 uuidReq: req.uuid,
@@ -221,11 +235,15 @@ class JDozerFuzzerEngineProcessor {
                 params: {}
             };
 
-            let dmmCases = this.#getCase(context.vars.testId, op);
+            let dmmCases = await this.#getCase(context.vars.testId, op);
             if (!dmmCases) {
                 this.#log.warn(`No DMM cases for operation ${op} and fuzzer ${context.vars.testId}`);
                 return;
+            } else {
+                this.#log.debug(`DMM cases for operation ${op} found`);
             }
+
+            this.#log.verbose(`beforeRequest: dmmCases: ${Object.keys(dmmCases)}`);
 
             let params = {};
             params.payload = dmmCases.payload;
@@ -234,36 +252,47 @@ class JDozerFuzzerEngineProcessor {
             params.path = dmmCases.path;
 
             if (params.payload) {
-                req.body = Buffer.from(params.payload.data, 'base64').toString('utf8');
-                request.params.payloadId = params.payload.id;
-                params.payload_valid = params.payload.valid;
+                let payload = JSON.parse(params.payload);
+                req.body = Buffer.from(payload.data, 'base64').toString('utf8');
+                request.params.payloadId = payload.id;
+                params.payload_valid = payload.valid;
             } else { params.payload = {} }
 
             if (params.headers) {
-                req.headers = Buffer.from(params.headers.data, 'base64').toString('utf8');
-                request.params.headersId = params.headers.id;
-                params.headers_valid = params.headers.valid;
+                let headers = JSON.parse(params.headers);
+                req.headers = Buffer.from(headers.data, 'base64').toString('utf8');
+                request.params.headersId = headers.id;
+                params.headers_valid = headers.valid;
             } else { params.headers = {} }
 
             if (params.query) {
-                req.query = Buffer.from(params.query.data, 'base64').toString('utf8');
-                request.params.queryId = params.query.id;
-                params.query_valid = params.query.valid;
+                let query = JSON.parse(params.query);
+                req.query = Buffer.from(query.data, 'base64').toString('utf8');
+                request.params.queryId = query.id;
+                params.query_valid = query.valid;
             } else { params.query = {} }
 
             if (params.path) {
-                let keys = Object.keys(params.path.data);
+                let path = JSON.parse(params.path);
+                let dataRaw = Buffer.from(path.data, 'base64').toString('utf8');
+                let data = JSON.parse(dataRaw);
+                let keys = Object.keys(data);
 
                 for (let key of keys) {
-                    req.url = req.url.replace(`{${key}}`, Buffer.from(params.path.data[key], 'base64').toString('utf8'));
+                    //this.#log.verbose(req.url);
+                    req.url = req.url.replace(`{${key}}`, data[key]);
+                    //this.#log.verbose(req.url);
                 };
 
+                /**
+                 * @todo: Tengo dudas sobre este codigo.
+                 */
                 if (keys.length === 0 && params.path.property) {
-                    req.url = req.url.replace(`{${params.path.property}}`, '');
+                    req.url = req.url.replace(`{${path.property}}`, '');
                 }
 
-                request.params.pathId = params.path.id;
-                params.path_valid = params.path.valid;
+                request.params.pathId = path.id;
+                params.path_valid = path.valid;
 
             } else { params.path = {} }
 
@@ -271,8 +300,7 @@ class JDozerFuzzerEngineProcessor {
 
 
         } catch (e) {
-            this.#log.error("Error en beforeRequest:", e.message);
-            this.#log.error(e);
+            this.#log.error("Error en beforeRequest:", e);
         }
     }
 
@@ -327,6 +355,7 @@ class JDozerFuzzerEngineProcessor {
 
         } catch (e) {
             this.#log.error("Error en afterResponse:", e);
+            this.#log.error(`Values: requestId: ${req.uuid}`);
         }
 
     }
@@ -350,7 +379,7 @@ class JDozerFuzzerEngineProcessor {
 
     }
 
-    #redisConnect() {
+    async #redisConnect() {
         if (!this.#redis) {
             this.#redis = redis.createClient({
                 url: `redis://${process.env.FUZZER_REDIS_HOST}:${process.env.FUZZER_REDIS_PORT}`
@@ -399,6 +428,6 @@ module.exports = {
 
     async afterTest(context) {
         await jDozerFuzzerEngineProcessor.afterTest(context);
-    }
+    },
+    jDozerFuzzerEngineProcessor
 };
-

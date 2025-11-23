@@ -13,7 +13,7 @@ export class LoggerConfig {
     }
 
     private static loggerMapper(): string[] {
-        const level: string = process.env.LOG_LEVEL;
+        const level: string = process.env.FUZZER_LOG_LEVEL;
         if (level === 'INFO')
             return ['error', 'warn', 'log'];
         if (level === 'DEBUG')
