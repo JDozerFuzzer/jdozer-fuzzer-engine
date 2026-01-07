@@ -44,10 +44,11 @@ export class JDozerFuzzerEngine {
       engCfg.before = { flow: [{ function: 'before' }] };
 
       this.redisService.set(this.keyManger.forEngine(fuzzer.id), engCfg);
-
+      
       let engCfgYml = YAML.stringify(engCfg);
-      this.exec(engCfgYml);
+      this.exec(engCfgYml, fuzzer.id);
       this.log.log('Fuzzer Engine started!');
+
       return;
 
     } catch (e) {
@@ -80,9 +81,10 @@ export class JDozerFuzzerEngine {
     };
   }
 
-  private async exec(cfg: string, options: string[] = []): Promise<void> {
+  private async exec(cfg: string, prefix: string, options: string[] = []): Promise<void> {
 
-    const fileName = `engine-${randomUUID().toString()}.yml`;
+    const fileName = `${prefix}-engine-cfg.yml`;
+    const summaryFile = `${prefix}-summary.json`
     const pathFile = `/tmp/${fileName}`;
     fs.writeFileSync(pathFile, cfg);
 
@@ -90,7 +92,7 @@ export class JDozerFuzzerEngine {
 
       const workingDirectory = __dirname;
 
-      const engineProcess = spawn('artillery', ['run', `--quiet`, ...options, pathFile.toString()], {
+      const engineProcess = spawn('artillery', ['run', `--quiet`, `--output`, `/tmp/${summaryFile}`, ...options, pathFile.toString()], {
         detached: true,
         cwd: workingDirectory,
         stdio: ['pipe', 'inherit', 'inherit']
