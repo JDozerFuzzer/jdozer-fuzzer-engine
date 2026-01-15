@@ -33,8 +33,12 @@ class JDozerFuzzerEngineProcessor {
             }
 
             let fuzzer = JSON.parse(fuzzerRaw);
+
+            this.runtimeEvents({ fuzzerId: context.vars.testId }, 'prepare-cases');
+
             for (let op of fuzzer.operationIds) {
                 await this.#loadDmmCases(fuzzer.id, op);
+                this.runtimeEvents({ fuzzerId: context.vars.testId, operationId: op }, 'cases-loaded');
             }
 
             this.#log.log(`Fuzzer ${fuzzer.name} loaded successfully!`);
@@ -219,8 +223,14 @@ class JDozerFuzzerEngineProcessor {
         }
     }
 
-    /** */
-
+    /**
+     * 
+     * @param {*} req 
+     * @param {*} context 
+     * @param {*} event 
+     * @param {*} o 
+     * @returns 
+     */
     async beforeRequest(req, context, event, o) {
 
         try {
@@ -279,9 +289,7 @@ class JDozerFuzzerEngineProcessor {
                 let keys = Object.keys(data);
 
                 for (let key of keys) {
-                    //this.#log.verbose(req.url);
                     req.url = req.url.replace(`{${key}}`, data[key]);
-                    //this.#log.verbose(req.url);
                 };
 
                 /**
@@ -295,6 +303,8 @@ class JDozerFuzzerEngineProcessor {
                 params.path_valid = path.valid;
 
             } else { params.path = {} }
+
+            this.runtimeEvents({ fuzzerId: context.vars.testId, operationId: request.operationId, uuidReq: request.uuidReq }, 'request-created');
 
             await this.#redis.set('JDF:'.concat(context.vars.testId).concat(':ENG:').concat(request.operationId).concat(':').concat(request.uuidReq).concat(':REQ'), JSON.stringify(request));
 
@@ -353,6 +363,14 @@ class JDozerFuzzerEngineProcessor {
             reqAgr.agent = undefined;
             await this.#redis.set(reqKey, JSON.stringify(reqAgr));
 
+            this.runtimeEvents({
+                fuzzerId: context.vars.testId,
+                operationId: req.operationId,
+                uuidReq: req.uuid,
+                statusCode: res.statusCode,
+                statusMessage: res.statusMessage
+            }, 'response-received');
+
         } catch (e) {
             this.#log.error("Error en afterResponse:", e);
             this.#log.error(`Values: requestId: ${req.uuid}`);
@@ -371,6 +389,8 @@ class JDozerFuzzerEngineProcessor {
             eventType: 'attack-completed',
             data: {}
         };
+
+        this.runtimeEvents({ fuzzerId: context.vars.testId }, 'attack-completed');
 
         await this.publishEvent('jdozer:fuzzer:broker', message);
         this.#log.log('Test completed!');
@@ -401,12 +421,22 @@ class JDozerFuzzerEngineProcessor {
         try {
             message.data = btoa(JSON.stringify(message.data));
             await this.#redis.publish(channel, JSON.stringify(message));
-            this.#log.debug(`[publishEvent] Published event: ${channel}:`, message);
+            // this.#log.verbose(`[publishEvent] Published event: ${channel}:`, message);
         } catch (error) {
             this.#log.error('[publishEvent] Event exception:', error);
         }
     }
 
+    async runtimeEvents(payload, eventType) {
+        return this.publishEvent(`jdozer:fuzzer:engine`, {
+            id: randomUUID(),
+            fuzzerId: payload.fuzzerId,
+            eventType: eventType,
+            entityType: 'engine',
+            timestamp: Date.now(),
+            payload: payload
+        });
+    }
 
 };
 
