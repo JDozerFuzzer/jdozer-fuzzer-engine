@@ -2,12 +2,12 @@
 const redis = require("redis");
 const { randomUUID } = require("crypto");
 const { exit } = require("process");
-const { Logger } = require('@nestjs/common');
+const { Logger, LogLevel } = require('@nestjs/common');
 
 class JDozerFuzzerEngineProcessor {
 
     #log = new Logger('JDozerFuzzerEngineProcessor', {
-        level: process.env.FUZZER_LOG_LEVEL
+        level: ['error', 'warn', 'log']
     });
     #redis;
 
@@ -97,12 +97,12 @@ class JDozerFuzzerEngineProcessor {
                     if (dmmCasesKeys[key].length === 0) {
                         let reloaded = await this.#getDmmKeysByType(fuzzerId, operationId, key);
                         dmmCasesKeys[key] = (reloaded.length === 0) ? undefined : reloaded;
-                        this.#log.verbose(`#updateDmmCases: Reloaded DMM cases keys for type ${key}: ${dmmCasesKeys[key].length} total`);
+                        //this.#log.verbose(`#updateDmmCases: Reloaded DMM cases keys for type ${key}: ${dmmCasesKeys[key].length} total`);
                     } else {
-                        this.#log.verbose(`#updateDmmCases: Remaining DMM cases keys for type ${key}: ${dmmCasesKeys[key].length} remaining`);
+                        //this.#log.verbose(`#updateDmmCases: Remaining DMM cases keys for type ${key}: ${dmmCasesKeys[key].length} remaining`);
                     }
                 } else {
-                    this.#log.verbose(`#updateDmmCases: No remaining DMM cases keys for type ${key}`);
+                    //this.#log.verbose(`#updateDmmCases: No remaining DMM cases keys for type ${key}`);
                 }
             }
             await this.#redis.set('JDF:'.concat(fuzzerId).concat(':ENG:CASES:').concat(operationId), JSON.stringify(dmmCasesKeys));
@@ -120,14 +120,14 @@ class JDozerFuzzerEngineProcessor {
      */
     async #getCasesKeys(casesKeys) {
         try {
-            this.#log.verbose(`#getCasesKeys: ${Object.keys(casesKeys)}`);
+            //this.#log.verbose(`#getCasesKeys: ${Object.keys(casesKeys)}`);
             let keys = Object.keys(casesKeys);
             let selectedCaseKeyAndReduce = {};
             for (let key of keys) {
                 if (casesKeys[key] != undefined) {
-                    this.#log.verbose(`#getCasesKeys: ${key}:${casesKeys[key].length}`);
+                    //this.#log.verbose(`#getCasesKeys: ${key}:${casesKeys[key].length}`);
                     selectedCaseKeyAndReduce[key] = await this.#getDmmKeyAndReduce(casesKeys[key]);
-                    this.#log.verbose(`#getCasesKeys: Reduce: ${key}:${selectedCaseKeyAndReduce[key].rest.length}`);
+                    //this.#log.verbose(`#getCasesKeys: Reduce: ${key}:${selectedCaseKeyAndReduce[key].rest.length}`);
                 }
             }
             return selectedCaseKeyAndReduce;
@@ -146,7 +146,7 @@ class JDozerFuzzerEngineProcessor {
     async #getDmmCases(fuzzerId, operationId) {
         try {
             let qry = 'JDF:'.concat(fuzzerId).concat(':ENG:CASES:').concat(operationId);
-            this.#log.verbose(`#getDmmCases: Querying DMM cases with key: ${qry}`);
+            //this.#log.verbose(`#getDmmCases: Querying DMM cases with key: ${qry}`);
             let cases = JSON.parse(await this.#redis.get(qry));
             return (Object.keys(cases).length > 0) ? cases : undefined;
         } catch (e) {
@@ -166,7 +166,7 @@ class JDozerFuzzerEngineProcessor {
                 let c = await this.#redis.get(arr[0]);
                 let r = arr.slice(1);
                 let keyAndReduce = { selectedCaseKey: c, rest: r };
-                this.#log.verbose(`#getDmmKeyAndReduce: keyAndReduce: ${keyAndReduce.rest.length}`, `selectedCaseKey: ${keyAndReduce.selectedCaseKey}`);
+                //this.#log.verbose(`#getDmmKeyAndReduce: keyAndReduce: ${keyAndReduce.rest.length}`, `selectedCaseKey: ${keyAndReduce.selectedCaseKey}`);
                 return keyAndReduce;
             }
             return {};
@@ -214,7 +214,7 @@ class JDozerFuzzerEngineProcessor {
     async #getDmmKeysByType(fuzzerId, operationId, type) {
         try {
             let fnd = 'JDF:'.concat(fuzzerId).concat(':DMM:').concat(operationId).concat(':').concat(type).concat(':*');
-            this.#log.verbose(`#getDmmKeysByType: Finding DMM keys with pattern: ${fnd}`);
+            //this.#log.verbose(`#getDmmKeysByType: Finding DMM keys with pattern: ${fnd}`);
             return await this.#redis.keys(fnd);
         } catch (e) {
             let err = `Error in #getDmmKeysByType for type ${type}: ${e.message}`;
@@ -236,7 +236,6 @@ class JDozerFuzzerEngineProcessor {
         try {
 
             let op = context.scenario.name.toString();
-            this.#log.verbose(`Request for operation: ${op}`);
 
             let request = {
                 uuidReq: req.uuid,
@@ -253,7 +252,7 @@ class JDozerFuzzerEngineProcessor {
                 this.#log.debug(`DMM cases for operation ${op} found`);
             }
 
-            this.#log.verbose(`beforeRequest: dmmCases: ${Object.keys(dmmCases)}`);
+            ////this.#log.verbose(`beforeRequest: dmmCases: ${Object.keys(dmmCases)}`);
 
             let params = {};
             params.payload = dmmCases.payload;
@@ -304,10 +303,14 @@ class JDozerFuzzerEngineProcessor {
 
             } else { params.path = {} }
 
-            this.runtimeEvents({ fuzzerId: context.vars.testId, operationId: request.operationId, uuidReq: request.uuidReq }, 'request-created');
-
-            await this.#redis.set('JDF:'.concat(context.vars.testId).concat(':ENG:').concat(request.operationId).concat(':').concat(request.uuidReq).concat(':REQ'), JSON.stringify(request));
-
+            const reqKey = 'JDF:'.concat(context.vars.testId).concat(':ENG:').concat(request.operationId).concat(':').concat(request.uuidReq).concat(':REQ');
+            await this.#redis.set(reqKey, JSON.stringify(request));
+            await this.runtimeEvents({
+                fuzzerId: context.vars.testId,
+                operationId: request.operationId,
+                uuidReq: request.uuidReq,
+                reqKey: reqKey
+            }, 'request-created');
 
         } catch (e) {
             this.#log.error("Error en beforeRequest:", e);
@@ -354,7 +357,13 @@ class JDozerFuzzerEngineProcessor {
             };
 
             let reqKey = (await this.#redis.keys('JDF:*:ENG:*:'.concat(req.uuid).concat(':REQ')))[0];
-            await this.#redis.set(reqKey.replace(':REQ', ':RES'), JSON.stringify(response));
+            if (!reqKey) {
+                this.#log.error('Request not found');
+                return;
+            }
+
+            const resKey = reqKey.replace(':REQ', ':RES');
+            await this.#redis.set(resKey, JSON.stringify(response));
 
             const reqBef = JSON.parse(await this.#redis.get(reqKey));
             let reqAgr = Object.assign({}, req);
@@ -363,10 +372,11 @@ class JDozerFuzzerEngineProcessor {
             reqAgr.agent = undefined;
             await this.#redis.set(reqKey, JSON.stringify(reqAgr));
 
-            this.runtimeEvents({
+            await this.runtimeEvents({
                 fuzzerId: context.vars.testId,
                 operationId: req.operationId,
                 uuidReq: req.uuid,
+                resKey: resKey,
                 statusCode: res.statusCode,
                 statusMessage: res.statusMessage
             }, 'response-received');
@@ -419,9 +429,9 @@ class JDozerFuzzerEngineProcessor {
         }
 
         try {
-            message.data = btoa(JSON.stringify(message.data));
+            message.data = btoa(JSON.stringify(message.payload));
             await this.#redis.publish(channel, JSON.stringify(message));
-            // this.#log.verbose(`[publishEvent] Published event: ${channel}:`, message);
+            // //this.#log.verbose(`[publishEvent] Published event: ${channel}:`, message);
         } catch (error) {
             this.#log.error('[publishEvent] Event exception:', error);
         }
@@ -434,8 +444,30 @@ class JDozerFuzzerEngineProcessor {
             eventType: eventType,
             entityType: 'engine',
             timestamp: Date.now(),
-            payload: payload
+            payload: payload,
+            version: '1.0.0'
         });
+    }
+
+    async afterScenario(context, ee, next) {
+        if (context.requestFailed) {
+            this.#log.error(`afterScenario: Request failed for operation ${context.scenario.name}`);
+            //this.#log.error(context);
+            //this.#log.error(ee);
+            //this.#log.error(next);
+        } else {
+            this.#log.log(`afterScenario: Request completed for operation ${context.scenario.name}`);
+            //this.#log.log(context);
+            //this.#log.log(ee);
+            //this.#log.log(next);
+        }
+    }
+
+    async onError(context, ee, next) {
+        this.#log.error(`onError: Error for operation ${context.scenario.name}`);
+        //this.#log.error(context);
+        //this.#log.error(ee);
+        //this.#log.error(next);
     }
 
 };
@@ -458,6 +490,14 @@ module.exports = {
 
     async afterTest(context) {
         await jDozerFuzzerEngineProcessor.afterTest(context);
+    },
+
+    async afterScenario(context, ee, next) {
+        await jDozerFuzzerEngineProcessor.afterScenario(context, ee, next);
+    },
+
+    async onError(context, ee, next) {
+        await jDozerFuzzerEngineProcessor.onError(context, ee, next);
     },
     jDozerFuzzerEngineProcessor
 };

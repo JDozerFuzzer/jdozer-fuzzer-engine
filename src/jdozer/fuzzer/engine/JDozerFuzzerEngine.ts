@@ -39,12 +39,14 @@ export class JDozerFuzzerEngine {
       engCfg.scenarios = await this.engineScenarios.build(operations, cases);
       engCfg.config.phases = this.enginePhases.build(engCfg.scenarios, cases.length, operations.length, timeLength);
 
+      engCfg.config.ensure = ['onError'];
+
       engCfg.config.processor = this.targetProcessor();
       engCfg.config.plugins = this.targetPlugins(fuzzer);
       engCfg.before = { flow: [{ function: 'before' }] };
 
       this.redisService.set(this.keyManger.forEngine(fuzzer.id), engCfg);
-      
+
       let engCfgYml = YAML.stringify(engCfg);
       this.exec(engCfgYml, fuzzer.id);
       this.log.log('Fuzzer Engine started!');

@@ -21,13 +21,15 @@ export class EngineScenarios {
                 scenarios.push({
                     name: `${op.name}`,
                     beforeScenario: 'beforeScenario',
+                    afterScenario: 'afterScenario',
                     weight: operationWeight[op.name].weight,
                     flow: [
                         {
                             [op.method]: {
                                 url: op.path,
                                 beforeRequest: 'beforeRequest',
-                                afterResponse: 'afterResponse'
+                                afterResponse: 'afterResponse',
+                                catchErrors: 'onError'
                             }
                         }
                     ]
