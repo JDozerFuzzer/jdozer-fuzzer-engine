@@ -305,13 +305,14 @@ class JDozerFuzzerEngineProcessor {
 
             const reqKey = 'JDF:'.concat(context.vars.testId).concat(':ENG:').concat(request.operationId).concat(':').concat(request.uuidReq).concat(':REQ');
             await this.#redis.set(reqKey, JSON.stringify(request));
+            /**
             await this.runtimeEvents({
                 fuzzerId: context.vars.testId,
                 operationId: request.operationId,
                 uuidReq: request.uuidReq,
                 reqKey: reqKey
             }, 'request-created');
-
+            */
         } catch (e) {
             this.#log.error("Error en beforeRequest:", e);
         }
@@ -372,6 +373,15 @@ class JDozerFuzzerEngineProcessor {
             reqAgr.agent = undefined;
             await this.#redis.set(reqKey, JSON.stringify(reqAgr));
 
+            await this.runtimeEvent({
+                fuzzerId: context.vars.testId,
+                operationId: req.operationId,
+                caseId: req.uuid,
+                responseId: resKey,
+                scenarioName: context.scenario.name.toString()
+            }, 'after-response');
+
+            /**
             await this.runtimeEvents({
                 fuzzerId: context.vars.testId,
                 operationId: req.operationId,
@@ -380,7 +390,7 @@ class JDozerFuzzerEngineProcessor {
                 statusCode: res.statusCode,
                 statusMessage: res.statusMessage
             }, 'response-received');
-
+            */
         } catch (e) {
             this.#log.error("Error en afterResponse:", e);
             this.#log.error(`Values: requestId: ${req.uuid}`);
@@ -429,7 +439,7 @@ class JDozerFuzzerEngineProcessor {
         }
 
         try {
-            message.data = btoa(JSON.stringify(message.payload));
+            //message.data = btoa(JSON.stringify(message.payload));
             await this.#redis.publish(channel, JSON.stringify(message));
             // //this.#log.verbose(`[publishEvent] Published event: ${channel}:`, message);
         } catch (error) {
@@ -437,6 +447,29 @@ class JDozerFuzzerEngineProcessor {
         }
     }
 
+    CHANNEL_FUZZER_ENGINE = 'fuzzer:engine';
+    ENTITY_TYPE_FUZZER_ENGINE = 'fuzzer-engine';
+
+    async runtimeEvent(payload, eventType) {
+        return this.publishEvent(this.CHANNEL_FUZZER_ENGINE, {
+            headers: {
+                id: randomUUID(),
+                timestamp: Date.now(),
+                version: '1.0.0',
+                entityId: payload.fuzzerId,
+                entityType: this.ENTITY_TYPE_FUZZER_ENGINE,
+                eventType: eventType
+            },
+            payload: payload
+        });
+    }
+
+    /**
+     * @deprecated
+     * @param {*} payload 
+     * @param {*} eventType 
+     * @returns 
+     */
     async runtimeEvents(payload, eventType) {
         return this.publishEvent(`jdozer:fuzzer:engine`, {
             id: randomUUID(),
