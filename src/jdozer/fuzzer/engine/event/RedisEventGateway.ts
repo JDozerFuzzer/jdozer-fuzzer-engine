@@ -15,15 +15,16 @@ export class RedisEventsGateway implements OnModuleDestroy {
     private readonly log = new Logger(RedisEventsGateway.name);
     private subscriber: Redis.Redis;
 
-    private static readonly CHANNEL = 'jdozer:fuzzer:broker';
-    private static readonly ENTITY = 'fuzzer-engine';
+    private static readonly START_CHANNEL = process.env.FUZZER_VECTORS_CHANNEL || 'fuzzer:vectors';
+    private static readonly ENTITY_TYPE = 'fuzzer-engine';
+    private static readonly MY_CHANNEL = process.env.FUZZER_ENGINE_CHANNEL || 'fuzzer:engine';
 
     constructor(
         private readonly fuzzerEngine: JDozerFuzzerEngine,
         private readonly redisService: RedisService
     ) {
         this.log.verbose('[RedisEventsGateway] Initializing Redis Events Gateway...');
-        this.log.verbose(`[RedisEventsGateway] Connecting to Redis server at: ${process.env.REDIS_HOST}:${process.env.REDIS_PORT}`);
+        this.log.verbose(`[RedisEventsGateway] Connecting to Redis server at: ${process.env.FUZZER_REDIS_HOST}:${process.env.FUZZER_REDIS_PORT}`);
         this.subscriber = new Redis.Redis({
             host: process.env.FUZZER_REDIS_HOST,
             port: +process.env.FUZZER_REDIS_PORT,
@@ -34,7 +35,7 @@ export class RedisEventsGateway implements OnModuleDestroy {
     async initialize() {
 
         this.log.log('[initialize] Initializing Redis Events Gateway...');
-        this.log.log(`[initialize] Subscribing to Redis channel: ${RedisEventsGateway.CHANNEL}`);
+        this.log.log(`[initialize] Subscribing to Redis channel: ${RedisEventsGateway.START_CHANNEL}`);
 
         this.subscriber.on('error', (err) => {
             this.log.error(`[initialize] Redis subscriber error: ${err.message}`, err);
@@ -64,8 +65,8 @@ export class RedisEventsGateway implements OnModuleDestroy {
                 this.log.verbose(`[initialize] Message received on channel: ${channel}`);
                 this.log.verbose(`[initialize] Message: ${message}`);
 
-                if (RedisEventsGateway.CHANNEL !== channel) {
-                    this.log.debug(`[initialize] Ignoring message from channel: ${channel}`);
+                if (RedisEventsGateway.START_CHANNEL !== channel) {
+                    this.log.warn(`[initialize] Ignoring message from channel: ${channel}`);
                     return;
                 }
 
@@ -77,58 +78,56 @@ export class RedisEventsGateway implements OnModuleDestroy {
             }
         });
 
-        await this.subscriber.subscribe(RedisEventsGateway.CHANNEL);
-        this.log.verbose(`[initialize] Redis Events Gateway initialized and subscribed to channel: ${RedisEventsGateway.CHANNEL}`);
+        await this.subscriber.subscribe(RedisEventsGateway.START_CHANNEL);
+        this.log.verbose(`[initialize] Redis Events Gateway initialized and subscribed to channel: ${RedisEventsGateway.START_CHANNEL}`);
     }
 
     private async router(event: any) {
 
-        if (!event || !event.entityType || !event.eventType || !event.data || !event.entityId) {
+        if (!event || !event.headers.entityType || !event.headers.eventType || !event.payload || !event.headers.entityId) {
             this.log.error('[router] Invalid event data received:', event);
             return;
         }
 
-        if ('fuzzer-vectors' === event.entityType && event.eventType === 'load-success') {
-            this.log.verbose(`[router] Processing event: entityType[${event.entityType}], eventType[${event.eventType}]`);
+        if ('fuzzer-vectors' === event.headers.entityType && event.headers.eventType === 'builder-successful') {
+            this.log.verbose(`[router] Processing event: entityType[${event.headers.entityType}], eventType[${event.headers.eventType}]`);
 
             try {
-                const fuzzer: any = JSON.parse(Buffer.from(event.data, 'base64').toString('binary'));
-                await this.fuzzerEngine.start(event.entityId as UUID);
-                const eventData = {
-                    fuzzerId: fuzzer.fuzzerId,
-                    status: 'attack-started',
-                    timestamp: new Date().getTime()
-                };
-                this.publish(RedisEventsGateway.CHANNEL, event.traceId, fuzzer.fuzzerId, 'attack-started', eventData);
-                this.log.debug(`[router] Engine started for fuzzerId: ${fuzzer.fuzzerId}`);
+                await this.fuzzerEngine.start(event.payload.fuzzerId as UUID);
+                await this.publish(event.payload.fuzzerId as UUID, 'engine-started', { fuzzerId: event.payload.fuzzerId });
+                this.log.log(`[router] Engine started for fuzzerId: ${event.payload.fuzzerId}`);
                 return;
             } catch (e) {
                 this.log.error(`[router] Error starting engine: ${e.message}`, e);
-                this.publish(RedisEventsGateway.CHANNEL, event.traceId, event.entityId, 'attack-failed', {
-                    status: 'attack-failed',
-                    timestamp: new Date().getTime(),
-                    data: event.data
+                await this.publish(event.payload.fuzzerId as UUID, 'error', {
+                    fuzzerId: event.payload.fuzzerId,
+                    message: e.message,
+                    details: e.details,
+                    action: 'retry'
                 });
             }
         } else {
-            this.log.verbose(`[routeEvent] Unsupported event type: entityType[${event.entityType}], eventType[${event.eventType}]`);
+            this.log.warn(`[routeEvent] Unsupported event type: entityType[${event.entityType}], eventType[${event.eventType}]`);
             return;
         }
     }
 
-    async publish(channel: string, traceId: UUID, entityId: UUID, eventType: string, payload: any) {
+    async publish(entityId: UUID, eventType: string, payload: any) {
         try {
+
             const event = {
-                id: randomUUID(),
-                traceId: traceId,
-                timestamp: new Date().getTime(),
-                entityId: entityId,
-                entityType: RedisEventsGateway.ENTITY,
-                eventType: eventType,
-                data: payload
+                headers: {
+                    id: randomUUID(),
+                    timestamp: new Date().getTime(),
+                    version: '1.0.0',
+                    entityId: entityId,
+                    entityType: RedisEventsGateway.ENTITY_TYPE,
+                    eventType: eventType
+                },
+                payload: payload
             };
 
-            await this.redisService.publish(channel, event);
+            await this.redisService.publish(RedisEventsGateway.MY_CHANNEL, event);
         } catch (e) {
             this.log.error(`[publish] Error publishing event: ${e.message}`, e);
             throw e;

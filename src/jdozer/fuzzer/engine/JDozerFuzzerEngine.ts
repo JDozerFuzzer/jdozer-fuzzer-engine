@@ -14,6 +14,7 @@ import { RedisService } from './persistence/RedisService';
 import { EngineScenarios } from './config/EngineScenarios';
 import { KeyManager } from './persistence/KeyManager';
 import { EnginePhases } from './config/EnginePhases';
+import { RedisEventsGateway } from './event/RedisEventGateway';
 
 @Injectable()
 export class JDozerFuzzerEngine {
@@ -24,7 +25,8 @@ export class JDozerFuzzerEngine {
   constructor(
     private readonly redisService: RedisService,
     private readonly engineScenarios: EngineScenarios,
-    private readonly enginePhases: EnginePhases
+    private readonly enginePhases: EnginePhases,
+    private readonly eventGateway: RedisEventsGateway
   ) { }
 
   async start(fuzzerId: UUID, timeLength: number = 1): Promise<void> {
@@ -49,6 +51,9 @@ export class JDozerFuzzerEngine {
 
       let engCfgYml = YAML.stringify(engCfg);
       this.exec(engCfgYml, fuzzer.id);
+
+      this.engineStartedEvent(engCfg, cases.length, fuzzer.id);
+
       this.log.log('Fuzzer Engine started!');
 
       return;
@@ -134,6 +139,29 @@ export class JDozerFuzzerEngine {
     } catch (e) {
       throw new EngineException({ message: `Oops! Failed to get Cases Keys!`, details: e.message });
     }
+  }
+
+  private async engineStartedEvent(config: any, cases: number, fuzzerId: UUID) {
+    const payload = {
+      fuzzerId: fuzzerId,
+      phases: {},
+      scenarios: {},
+      totalCases: cases
+    };
+    for (let phase of config.config.phases) {
+      payload.phases[phase.name] = {
+        duration: phase.duration,
+        arrivalRate: phase.arrivalRate,
+        maxUsers: phase.maxVusers,
+        rampTo: phase.rampTo
+      };
+    }
+    for (let scenario of config.scenarios) {
+      payload.scenarios[scenario.name] = {
+        weight: scenario.weight
+      };
+    }
+    await this.eventGateway.publish(fuzzerId, 'engine-started', payload);
   }
 
 
