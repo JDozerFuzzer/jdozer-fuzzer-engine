@@ -3,7 +3,7 @@
     # Copyright (C) 2024 Cristián Saéz V.
     # Licencia: GNU AGPLv3 (ver LICENSE)
  */
-import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
+import { Injectable, OnModuleInit, OnModuleDestroy, Logger, Inject, forwardRef } from '@nestjs/common';
 import * as Redis from 'ioredis';
 import { JDozerFuzzerEngine } from '../JDozerFuzzerEngine';
 import { RedisService } from '../persistence/RedisService';
@@ -20,6 +20,7 @@ export class RedisEventsGateway implements OnModuleDestroy {
     private static readonly MY_CHANNEL = process.env.FUZZER_ENGINE_CHANNEL || 'fuzzer:engine';
 
     constructor(
+        @Inject(forwardRef(() => JDozerFuzzerEngine))
         private readonly fuzzerEngine: JDozerFuzzerEngine,
         private readonly redisService: RedisService
     ) {
@@ -94,7 +95,6 @@ export class RedisEventsGateway implements OnModuleDestroy {
 
             try {
                 await this.fuzzerEngine.start(event.payload.fuzzerId as UUID);
-                await this.publish(event.payload.fuzzerId as UUID, 'engine-started', { fuzzerId: event.payload.fuzzerId });
                 this.log.log(`[router] Engine started for fuzzerId: ${event.payload.fuzzerId}`);
                 return;
             } catch (e) {
@@ -114,7 +114,6 @@ export class RedisEventsGateway implements OnModuleDestroy {
 
     async publish(entityId: UUID, eventType: string, payload: any) {
         try {
-
             const event = {
                 headers: {
                     id: randomUUID(),
@@ -126,7 +125,6 @@ export class RedisEventsGateway implements OnModuleDestroy {
                 },
                 payload: payload
             };
-
             await this.redisService.publish(RedisEventsGateway.MY_CHANNEL, event);
         } catch (e) {
             this.log.error(`[publish] Error publishing event: ${e.message}`, e);

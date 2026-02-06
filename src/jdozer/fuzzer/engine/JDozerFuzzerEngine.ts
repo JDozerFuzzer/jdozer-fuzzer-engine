@@ -3,7 +3,7 @@
     # Copyright (C) 2024 Cristián Saéz V.
     # Licencia: GNU AGPLv3 (ver LICENSE)
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { spawn } from 'child_process';
 import { randomUUID, UUID } from 'crypto';
 
@@ -26,6 +26,7 @@ export class JDozerFuzzerEngine {
     private readonly redisService: RedisService,
     private readonly engineScenarios: EngineScenarios,
     private readonly enginePhases: EnginePhases,
+    @Inject(forwardRef(() => RedisEventsGateway))
     private readonly eventGateway: RedisEventsGateway
   ) { }
 

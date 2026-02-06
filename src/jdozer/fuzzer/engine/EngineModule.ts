@@ -11,6 +11,7 @@ import { EngineScenarios } from './config/EngineScenarios';
 import { EnginePhases } from './config/EnginePhases';
 
 @Module({
-  providers: [RedisService, JDozerFuzzerEngine, EngineScenarios, EnginePhases, RedisEventsGateway]
+  providers: [RedisService, JDozerFuzzerEngine, EngineScenarios, EnginePhases, RedisEventsGateway],
+  imports: []
 })
 export class EngineModule { }
