@@ -97,12 +97,7 @@ class JDozerFuzzerEngineProcessor {
                     if (dmmCasesKeys[key].length === 0) {
                         let reloaded = await this.#getDmmKeysByType(fuzzerId, operationId, key);
                         dmmCasesKeys[key] = (reloaded.length === 0) ? undefined : reloaded;
-                        //this.#log.verbose(`#updateDmmCases: Reloaded DMM cases keys for type ${key}: ${dmmCasesKeys[key].length} total`);
-                    } else {
-                        //this.#log.verbose(`#updateDmmCases: Remaining DMM cases keys for type ${key}: ${dmmCasesKeys[key].length} remaining`);
                     }
-                } else {
-                    //this.#log.verbose(`#updateDmmCases: No remaining DMM cases keys for type ${key}`);
                 }
             }
             await this.#redis.set('JDF:'.concat(fuzzerId).concat(':ENG:CASES:').concat(operationId), JSON.stringify(dmmCasesKeys));
@@ -252,8 +247,6 @@ class JDozerFuzzerEngineProcessor {
                 this.#log.debug(`DMM cases for operation ${op} found`);
             }
 
-            ////this.#log.verbose(`beforeRequest: dmmCases: ${Object.keys(dmmCases)}`);
-
             let params = {};
             params.payload = dmmCases.payload;
             params.headers = dmmCases.headers;
@@ -263,6 +256,7 @@ class JDozerFuzzerEngineProcessor {
             if (params.payload) {
                 let payload = JSON.parse(params.payload);
                 req.body = Buffer.from(payload.data, 'base64').toString('utf8');
+                request.payload = payload.data;
                 request.params.payloadId = payload.id;
                 params.payload_valid = payload.valid;
             } else { params.payload = {} }
@@ -305,6 +299,7 @@ class JDozerFuzzerEngineProcessor {
 
             const reqKey = 'JDF:'.concat(context.vars.testId).concat(':ENG:').concat(request.operationId).concat(':').concat(request.uuidReq).concat(':REQ');
             await this.#redis.set(reqKey, JSON.stringify(request));
+            this.#log.verbose(`beforeRequest: request: ${request.body2}`);
             /**
             await this.runtimeEvents({
                 fuzzerId: context.vars.testId,
@@ -366,31 +361,20 @@ class JDozerFuzzerEngineProcessor {
             const resKey = reqKey.replace(':REQ', ':RES');
             await this.#redis.set(resKey, JSON.stringify(response));
 
-            const reqBef = JSON.parse(await this.#redis.get(reqKey));
-            let reqAgr = Object.assign({}, req);
-            reqAgr.params = reqBef.params;
-            reqAgr.operationId = reqBef.operationId;
-            reqAgr.agent = undefined;
-            await this.#redis.set(reqKey, JSON.stringify(reqAgr));
+            const requestBefore = JSON.parse(await this.#redis.get(reqKey));
+            let requestAggregate = Object.assign(requestBefore, req);
+            //reqAgr.params = requestBefore.params;
+            //reqAgr.operationId = requestBefore.operationId;
+            requestAggregate.agent = undefined;
+            await this.#redis.set(reqKey, JSON.stringify(requestAggregate));
 
             await this.runtimeEvent({
                 fuzzerId: context.vars.testId,
-                operationId: req.operationId,
+                operationId: requestAggregate.operationId,
                 caseId: req.uuid,
                 responseId: resKey,
                 scenarioName: context.scenario.name.toString()
             }, 'after-response');
-
-            /**
-            await this.runtimeEvents({
-                fuzzerId: context.vars.testId,
-                operationId: req.operationId,
-                uuidReq: req.uuid,
-                resKey: resKey,
-                statusCode: res.statusCode,
-                statusMessage: res.statusMessage
-            }, 'response-received');
-            */
         } catch (e) {
             this.#log.error("Error en afterResponse:", e);
             this.#log.error(`Values: requestId: ${req.uuid}`);
