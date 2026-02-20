@@ -243,8 +243,6 @@ class JDozerFuzzerEngineProcessor {
             if (!dmmCases) {
                 this.#log.warn(`No DMM cases for operation ${op} and fuzzer ${context.vars.testId}`);
                 return;
-            } else {
-                this.#log.debug(`DMM cases for operation ${op} found`);
             }
 
             let params = {};
@@ -299,7 +297,6 @@ class JDozerFuzzerEngineProcessor {
 
             const reqKey = 'JDF:'.concat(context.vars.testId).concat(':ENG:').concat(request.operationId).concat(':').concat(request.uuidReq).concat(':REQ');
             await this.#redis.set(reqKey, JSON.stringify(request));
-            this.#log.verbose(`beforeRequest: request: ${request.body2}`);
             /**
             await this.runtimeEvents({
                 fuzzerId: context.vars.testId,
@@ -468,23 +465,12 @@ class JDozerFuzzerEngineProcessor {
 
     async afterScenario(context, ee, next) {
         if (context.requestFailed) {
-            this.#log.error(`afterScenario: Request failed for operation ${context.scenario.name}`);
-            //this.#log.error(context);
-            //this.#log.error(ee);
-            //this.#log.error(next);
-        } else {
-            this.#log.log(`afterScenario: Request completed for operation ${context.scenario.name}`);
-            //this.#log.log(context);
-            //this.#log.log(ee);
-            //this.#log.log(next);
+            this.#log.error(`afterScenario: Request failed for operation ${context.scenario.name}`, context);
         }
     }
 
     async onError(context, ee, next) {
-        this.#log.error(`onError: Error for operation ${context.scenario.name}`);
-        //this.#log.error(context);
-        //this.#log.error(ee);
-        //this.#log.error(next);
+        this.#log.error(`onError: Error for operation ${context.scenario.name}`, context);
     }
 
 };
