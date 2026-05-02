@@ -27,7 +27,7 @@ export class EnginePhases {
 
             const sustainedLoad = {
                 name: 'SustainedLoad',
-                duration: Math.round(length * 0.7 *60),
+                duration: Math.round(length * 0.7 * 60),
                 arrivalRate: Math.round(arrivalRateBase),
                 maxVusers: Math.round(arrivalRateBase * 1.5)
             };
@@ -40,9 +40,8 @@ export class EnginePhases {
             };
 
             phases.push(warmUp, sustainedLoad, rampDown);
-            this.log.verbose(`[build] Engine phases created: `, phases);
             return phases;
-        } catch(e) {
+        } catch (e) {
             throw new EngineConfigException({ message: `Oops! Failed to build phases!`, details: e.message });
         }
     }

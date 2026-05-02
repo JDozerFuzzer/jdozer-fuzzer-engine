@@ -107,7 +107,8 @@ export class RedisEventsGateway implements OnModuleDestroy {
                 });
             }
         } else {
-            this.log.warn(`[routeEvent] Unsupported event type: entityType[${event.entityType}], eventType[${event.eventType}]`);
+            this.log.verbose(event);
+            this.log.warn(`[routeEvent] Unsupported event type: entityType[${event.headers.entityType}], eventType[${event.headers.eventType}]`);
             return;
         }
     }

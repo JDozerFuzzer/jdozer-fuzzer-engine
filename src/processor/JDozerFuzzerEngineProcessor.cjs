@@ -34,6 +34,9 @@ class JDozerFuzzerEngineProcessor {
 
             let fuzzer = JSON.parse(fuzzerRaw);
 
+            /**
+             * @TODO: Remove this event
+             */
             this.runtimeEvents({ fuzzerId: context.vars.testId }, 'prepare-cases');
 
             for (let op of fuzzer.operationIds) {
@@ -379,22 +382,23 @@ class JDozerFuzzerEngineProcessor {
 
     }
 
-    async afterTest(context) {
+    async attackCompleted(context) {
 
         const message = {
             id: randomUUID(),
             timestamp: new Date().getMilliseconds(),
             traceId: context.vars.testId,
             entityId: context.vars.testId,
-            entityType: 'fuzzer-engine',
+            entityType: this.ENTITY_TYPE_FUZZER_ENGINE,
             eventType: 'attack-completed',
-            data: {}
+            version: '1.0.0',
+            payload: {
+                fuzzerId: context.vars.testId
+            }
         };
 
-        this.runtimeEvents({ fuzzerId: context.vars.testId }, 'attack-completed');
-
-        await this.publishEvent('jdozer:fuzzer:broker', message);
-        this.#log.log('Test completed!');
+        await this.publishEvent(this.CHANNEL_FUZZER_ENGINE, message);
+        this.#log.log('Attack completed!');
 
         return;
 
@@ -453,13 +457,15 @@ class JDozerFuzzerEngineProcessor {
      */
     async runtimeEvents(payload, eventType) {
         return this.publishEvent(`jdozer:fuzzer:engine`, {
-            id: randomUUID(),
-            fuzzerId: payload.fuzzerId,
-            eventType: eventType,
-            entityType: 'engine',
-            timestamp: Date.now(),
-            payload: payload,
-            version: '1.0.0'
+            headers: {
+                id: randomUUID(),
+                fuzzerId: payload.fuzzerId,
+                eventType: eventType,
+                entityType: 'engine',
+                timestamp: Date.now(),
+                version: '1.0.0'
+            },
+            payload: payload
         });
     }
 
@@ -491,8 +497,8 @@ module.exports = {
         await jDozerFuzzerEngineProcessor.afterResponse(req, res, context, event);
     },
 
-    async afterTest(context) {
-        await jDozerFuzzerEngineProcessor.afterTest(context);
+    async attackCompleted(context) {
+        await jDozerFuzzerEngineProcessor.attackCompleted(context);
     },
 
     async afterScenario(context, ee, next) {

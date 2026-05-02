@@ -44,7 +44,6 @@ export class EngineScenarios {
     private async operationWeight(operations: any[], cases: string[]): Promise<any> {
         try {
             let opWeight = {};
-            this.log.verbose(opWeight);
             for (const op of operations) {
                 opWeight[`${op.name}`] = {};
                 opWeight[`${op.name}`].cant = cases.filter(c => c.includes(op.name)).length;
@@ -52,7 +51,6 @@ export class EngineScenarios {
             }
             opWeight = this.shorted(opWeight);
             opWeight = this.optimize(opWeight);
-            this.log.verbose(`[operationWeight] Operation weights calculated: `, opWeight);
             return opWeight;
         } catch (e) {
             throw new EngineConfigException({ message: `Oops! Failed to calculate scenarios!`, details: e.message });

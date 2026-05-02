@@ -15,12 +15,15 @@ import { EngineScenarios } from './config/EngineScenarios';
 import { KeyManager } from './persistence/KeyManager';
 import { EnginePhases } from './config/EnginePhases';
 import { RedisEventsGateway } from './event/RedisEventGateway';
+import { CasesCount } from './event/CasesCount';
 
 @Injectable()
 export class JDozerFuzzerEngine {
 
   private readonly log = new Logger(JDozerFuzzerEngine.name);
   private readonly keyManger: KeyManager = new KeyManager();
+
+  private fuzzer: any;
 
   constructor(
     private readonly redisService: RedisService,
@@ -33,11 +36,13 @@ export class JDozerFuzzerEngine {
   async start(fuzzerId: UUID, timeLength: number = 1): Promise<void> {
     try {
 
-      const fuzzer = await this.redisService.getFuzzer(fuzzerId);
-      const operations: any[] = await this.getOperations(fuzzer.id);
-      const cases: string[] = await this.getCasesKeys(fuzzer.id);
+      this.fuzzer = await this.redisService.getFuzzer(fuzzerId);
+      const operations: any[] = await this.getOperations(this.fuzzer.id);
+      const cases: string[] = await this.getCasesKeys(this.fuzzer.id);
 
-      let engCfg = await this.redisService.getEng(fuzzer.id);
+      await (new CasesCount(this.eventGateway)).send(fuzzerId, cases);
+
+      let engCfg = await this.redisService.getEng(this.fuzzer.id);
 
       engCfg.scenarios = await this.engineScenarios.build(operations, cases);
       engCfg.config.phases = this.enginePhases.build(engCfg.scenarios, cases.length, operations.length, timeLength);
@@ -45,15 +50,15 @@ export class JDozerFuzzerEngine {
       engCfg.config.ensure = ['onError'];
 
       engCfg.config.processor = this.targetProcessor();
-      engCfg.config.plugins = this.targetPlugins(fuzzer);
+      engCfg.config.plugins = this.targetPlugins(this.fuzzer);
       engCfg.before = { flow: [{ function: 'before' }] };
 
-      this.redisService.set(this.keyManger.forEngine(fuzzer.id), engCfg);
+      this.redisService.set(this.keyManger.forEngine(this.fuzzer.id), engCfg);
 
       let engCfgYml = YAML.stringify(engCfg);
-      this.exec(engCfgYml, fuzzer.id);
+      this.exec(engCfgYml, this.fuzzer.id);
 
-      this.engineStartedEvent(engCfg, cases.length, fuzzer.id);
+      this.engineStartedEvent(engCfg, cases.length, this.fuzzer.id);
 
       this.log.log('Fuzzer Engine started!');
 
@@ -106,10 +111,11 @@ export class JDozerFuzzerEngine {
         stdio: ['pipe', 'inherit', 'inherit']
       });
 
-      engineProcess.on('close', (code) => {
+      engineProcess.on('close', async (code) => {
         if (code !== 0) {
           reject(new Error(`Engine process exited with code ${code}`));
         } else {
+          await this.engineStoppedEvent(this.fuzzer.id);
           console.info(`Engine process with id ${engineProcess.pid} exited successfully!`);
           resolve();
         }
@@ -165,6 +171,11 @@ export class JDozerFuzzerEngine {
     await this.eventGateway.publish(fuzzerId, 'engine-started', payload);
   }
 
+  private async engineStoppedEvent(fuzzerId: UUID) {
+    await this.eventGateway.publish(fuzzerId, 'engine-stopped', {
+      fuzzerId: fuzzerId
+    });
+  }
 
   private readonly _MSG_NOTFOUND: string = 'Fuzzer not found or not owned by the current user!';
 }

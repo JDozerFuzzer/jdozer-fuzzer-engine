@@ -3,13 +3,15 @@
     # Copyright (C) 2024 Cristián Saéz V.
     # Licencia: GNU AGPLv3 (ver LICENSE)
  */
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { UUID } from 'crypto';
 import * as Redis from 'ioredis';
 import { KeyManager } from './KeyManager';
 
 @Injectable()
 export class RedisService implements OnModuleDestroy {
+
+    private readonly log = new Logger(RedisService.name);
 
     private readonly keyManager: KeyManager = new KeyManager();
     private client: Redis.Redis;
